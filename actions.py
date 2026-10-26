@@ -3,18 +3,19 @@ import signal
 import subprocess
 
 def kill_process(pid: int) -> str:
-    """Kills a process by its PID."""
+    """Forcefully kills a process by its PID."""
     try:
-        # SIGTERM (15) asks the process to terminate gracefully. 
-        # You could use SIGKILL (9) to force kill it.
-        os.kill(pid, signal.SIGTERM)
-        return f"✅ Successfully sent termination signal to PID {pid}."
-    except ProcessLookupError:
-        return f"❌ PID {pid} not found. It may have already closed."
-    except PermissionError:
-        return f"❌ Permission denied to kill PID {pid}. (Try running with sudo if necessary)"
+        # We use subprocess to execute a native Linux kill -9 command.
+        # This is much more aggressive than Python's os.kill
+        result = subprocess.run(["sudo", "kill", "-9", str(pid)], capture_output=True, text=True)
+        
+        if result.returncode == 0:
+            return f"✅ Successfully executed SIGKILL on PID {pid}."
+        else:
+            return f"❌ Failed to kill PID {pid}: {result.stderr.strip()}"
+            
     except Exception as e:
-        return f"❌ Failed to kill PID {pid}: {e}"
+        return f"❌ Error executing kill command: {e}"
 
 def manage_docker(action: str, container_id: str = "") -> str:
     """Runs basic docker commands (list, restart, stop)."""

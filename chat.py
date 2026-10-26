@@ -92,31 +92,32 @@ AVAILABLE_TOOLS = [
             }
         }
     },
-    {
-        "type": "function",
-        "function": {
-            "name": "list_python_packages",
-            "description": "List all installed Python dependencies and pip packages.",
-            "parameters": {"type": "object", "properties": {}}
-        }
-    }
+    # {
+    #     "type": "function",
+    #     "function": {
+    #         "name": "list_python_packages",
+    #         "description": "List all installed Python dependencies and pip packages.",
+    #         "parameters": {"type": "object", "properties": {}}
+    #     }
+    # }
 ]
 
 def ask_oracle(query, chat_history):
-    # --- PHASE 1: Codebase RAG ---
-    results = collection.query(query_texts=[query], n_results=3)
-    retrieved_context = ""
-    if results and results['documents']:
-        for doc, metadata in zip(results['documents'][0], results['metadatas'][0]):
-            retrieved_context += f"File: {metadata['relative_path']}\nCode:\n{doc}\n---\n"
+    # # --- PHASE 1: Codebase RAG ---
+    # results = collection.query(query_texts=[query], n_results=3)
+    # retrieved_context = ""
+    # if results and results['documents']:
+    #     for doc, metadata in zip(results['documents'][0], results['metadatas'][0]):
+    #         retrieved_context += f"File: {metadata['relative_path']}\nCode:\n{doc}\n---\n"
 
-    augmented_query = f"Code Context:\n{retrieved_context}\nUser Question: {query}"
+    # augmented_query = f"Code Context:\n{retrieved_context}\nUser Question: {query}"
 
     api_messages = [
         {"role": "system", "content": "You are OmniKernel, an autonomous system monitor and codebase oracle. Use your tools to check system health if the user asks about it."}
     ]
     api_messages.extend(chat_history)
-    api_messages.append({"role": "user", "content": augmented_query})
+    api_messages.append({"role": "user", "content": query})
+    # api_messages.append({"role": "user", "content": augmented_query})
 
     # --- PHASE 2: The Agentic Loop ---
     # The agent will stay in this loop until all tasks are finished.
@@ -162,13 +163,14 @@ def ask_oracle(query, chat_history):
                     print(f"📂 Agent reading file: {args.get('filepath')}")
                     tool_result = read_system_file(filepath=args.get("filepath"))
                     
-                elif function_name == "list_python_packages":
-                    print("📦 Agent checking installed packages...")
-                    tool_result = list_python_packages()
-                    
                 elif function_name == "find_process_by_name":
                     print(f"🔎 Agent searching for process: {args.get('search_term')}")
                     tool_result = find_process_by_name(search_term=args.get("search_term"))
+
+                # elif function_name == "list_python_packages":
+                #     print("📦 Agent checking installed packages...")
+                #     tool_result = list_python_packages()  
+
                 else:
                     tool_result = f"Error: Tool {function_name} not found."
                 
