@@ -1,0 +1,14 @@
+[project]
+name = "omnikernel"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "chromadb>=1.5.9",
+    "langchain-text-splitters>=1.1.2",
+    "ollama>=0.6.2",
+    "openai>=2.41.1",
+    "tqdm>=4.68.2",
+    "watchdog>=6.0.0",
+]
