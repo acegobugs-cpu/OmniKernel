@@ -2,11 +2,7 @@ import os
 import sys
 import threading
 
-# Import from your existing files
 from health import test_generation
-from ingest import crawl_codebase, chunk_documents
-from store import seed_vector_database, is_database_populated
-from watcher import start_watching
 from chat import start_chat
 
 def main():
@@ -41,7 +37,7 @@ def main():
     #     args=(current_workspace,), 
     #     daemon=True
     # )
-    # watcher_thread.start()#sfdklakj
+    # watcher_thread.start()
     
     # Step 4: Start Interactive Chat Loop in the Foreground
     print("\n--- Phase 4: Chat Interface Online ---")

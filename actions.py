@@ -55,3 +55,35 @@ def list_python_packages() -> str:
         return result.stdout.strip() if result.stdout else "No packages found."
     except Exception as e:
         return f"❌ Failed to list packages: {e}"
+
+def run_shell_command(command: str) -> str:
+    """Executes an arbitrary shell command safely with a timeout."""
+    # 1. Hardcoded blacklist to prevent catastrophic AI mistakes
+    blacklist = ["rm -rf /", "mkfs", "dd if="]
+    if any(bad_cmd in command for bad_cmd in blacklist):
+        return "❌ Security Block: That command is highly destructive and blacklisted."
+        
+    try:
+        # 2. Run the command with a strict 10-second timeout
+        result = subprocess.run(
+            command, 
+            shell=True, 
+            capture_output=True, 
+            text=True, 
+            timeout=10
+        )
+        
+        # 3. Combine stdout and stderr
+        output = result.stdout.strip()
+        error = result.stderr.strip()
+        
+        final_output = output if output else error
+        if not final_output:
+            return f"✅ Command '{command}' executed successfully with no output."
+            
+        return f"--- Output of '{command}' ---\n{final_output}"
+        
+    except subprocess.TimeoutExpired:
+        return f"❌ Error: Command '{command}' timed out after 10 seconds."
+    except Exception as e:
+        return f"❌ Error executing command: {e}"

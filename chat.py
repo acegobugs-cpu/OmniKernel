@@ -1,12 +1,7 @@
-import os
 import json
-import chromadb
 from clientAi import client
-from monitor import get_system_metrics_text, get_top_processes_text, find_process_by_name
-from actions import kill_process, manage_docker, read_system_file, list_python_packages
-
-chroma_client = chromadb.PersistentClient(path="./.omnikernel_db")
-collection = chroma_client.get_or_create_collection(name="codebase_chunks")
+from monitor import get_system_metrics_text, get_top_processes_text, get_system_logs, find_process_by_name
+from actions import kill_process, manage_docker, read_system_file, run_shell_command, list_python_packages
 
 # 1. Define the "Menu" of tools the AI is allowed to use
 AVAILABLE_TOOLS = [
@@ -92,6 +87,37 @@ AVAILABLE_TOOLS = [
             }
         }
     },
+    {
+        "type": "function",
+        "function": {
+            "name": "check_system_logs",
+            "description": "Read the recent Ubuntu system logs using journalctl. Useful for diagnosing crashes or service failures.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "lines": {"type": "integer", "description": "Number of recent log lines to fetch (default 50)."},
+                    "service": {
+                        "type": ["string", "null"], 
+                        "description": "Optional: Filter logs by a specific service name (e.g., 'docker'). Pass null if not filtering."
+                    }
+                }
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "run_shell_command",
+            "description": "Execute a standard Linux terminal command (e.g., ping, netstat, ls, grep, apt). Use this for general system diagnostics.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "command": {"type": "string", "description": "The bash command to execute."}
+                },
+                "required": ["command"]
+            }
+        }
+    },
     # {
     #     "type": "function",
     #     "function": {
@@ -167,6 +193,22 @@ def ask_oracle(query, chat_history):
                     print(f"🔎 Agent searching for process: {args.get('search_term')}")
                     tool_result = find_process_by_name(search_term=args.get("search_term"))
 
+                elif function_name == "check_system_logs":
+                    print(f"📖 Agent reading system logs...")
+                    
+                    # If the AI sends null, Python reads it as None. Convert it back to an empty string.
+                    raw_service = args.get("service")
+                    safe_service = raw_service if raw_service is not None else ""
+                    
+                    tool_result = get_system_logs(
+                        lines=args.get("lines", 50), 
+                        service=safe_service
+                    )
+
+                elif function_name == "run_shell_command":
+                    print(f"💻 Agent running shell command: {args.get('command')}")
+                    tool_result = run_shell_command(command=args.get("command"))
+
                 # elif function_name == "list_python_packages":
                 #     print("📦 Agent checking installed packages...")
                 #     tool_result = list_python_packages()  
@@ -175,10 +217,15 @@ def ask_oracle(query, chat_history):
                     tool_result = f"Error: Tool {function_name} not found."
                 
                 # 3. Feed the result back into the history so the AI can read it
+                # Convert the result to a string and hard-cap it at 4000 characters
+                safe_result = str(tool_result)
+                if len(safe_result) > 4000:
+                    safe_result = safe_result[:4000] + "\n...[SYSTEM: OUTPUT TRUNCATED TO SAVE TOKENS]"
+                
                 api_messages.append({
                     "role": "tool",
                     "tool_call_id": tool_call.id,
-                    "content": str(tool_result)
+                    "content": safe_result
                 })
             
             # The loop automatically repeats here! The AI reads the tool results 
