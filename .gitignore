@@ -21,3 +21,4 @@ wheels/
 
 #production files
 env.py
+mem.py
