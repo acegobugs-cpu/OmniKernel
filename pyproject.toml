@@ -1,10 +1,16 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
 [project]
 name = "omnikernel"
 version = "0.1.0"
-description = "Add your description here"
+description = "Autonomous AI System Monitor"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
+    "psutil",
+    "rich",
     "chromadb>=1.5.9",
     "langchain-text-splitters>=1.1.2",
     "ollama>=0.6.2",
@@ -12,3 +18,12 @@ dependencies = [
     "tqdm>=4.68.2",
     "watchdog>=6.0.0",
 ]
+
+[project.scripts]
+omni = "main:main"
+
+[tool.setuptools]
+py-modules = ["main", "chat", "actions", "monitor", "health", "clientAi"]
+
+[tool.setuptools.packages.find]
+include = ["prodConf*", "utils*"]
