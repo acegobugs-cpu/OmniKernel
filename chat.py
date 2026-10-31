@@ -1,7 +1,14 @@
+import os
 import json
 from clientAi import client
 from monitor import get_system_metrics_text, get_top_processes_text, get_system_logs, find_process_by_name
 from actions import kill_process, manage_docker, read_system_file, run_shell_command, list_python_packages
+
+from rich.console import Console
+from rich.markdown import Markdown
+
+# Initialize the rich console
+console = Console()
 
 # 1. Define the "Menu" of tools the AI is allowed to use
 AVAILABLE_TOOLS = [
@@ -128,6 +135,29 @@ AVAILABLE_TOOLS = [
     # }
 ]
 
+MEMORY_FILE = ".agent_memory.json"
+
+def load_memory():
+    """Loads the previous conversation history from disk."""
+    if os.path.exists(MEMORY_FILE):
+        try:
+            with open(MEMORY_FILE, 'r', encoding='utf-8') as f:
+                # Load history, but only keep the last 20 messages 
+                # to prevent hitting the API token limit on long conversations.
+                history = json.load(f)
+                return history[-20:] 
+        except Exception as e:
+            console.print(f"⚠️ Could not load memory: {e}")
+    return []
+
+def save_memory(history):
+    """Saves the current conversation history to disk."""
+    try:
+        with open(MEMORY_FILE, 'w', encoding='utf-8') as f:
+            json.dump(history, f, indent=4)
+    except Exception as e:
+        console.print(f"⚠️ Could not save memory: {e}")
+
 def ask_oracle(query, chat_history):
     # # --- PHASE 1: Codebase RAG ---
     # results = collection.query(query_texts=[query], n_results=3)
@@ -170,31 +200,31 @@ def ask_oracle(query, chat_history):
                 args = json.loads(tool_call.function.arguments) if tool_call.function.arguments else {}
                 
                 if function_name == "check_hardware":
-                    print("⚙️ Agent triggered: [check_hardware]")
+                    console.print("⚙️ Agent triggered: [check_hardware]")
                     tool_result = get_system_metrics_text()
                     
                 elif function_name == "check_processes":
-                    print("⚙️ Agent triggered: [check_processes]")
+                    console.print("⚙️ Agent triggered: [check_processes]")
                     tool_result = get_top_processes_text(limit=args.get("limit", 5))
                     
                 elif function_name == "kill_process":
-                    print(f"⚠️ Agent actively killing PID {args.get('pid')}...")
+                    console.print(f"⚠️ Agent actively killing PID {args.get('pid')}...")
                     tool_result = kill_process(pid=args.get("pid"))
                     
                 elif function_name == "manage_docker":
-                    print(f"🐳 Agent triggered Docker action: {args.get('action')}")
+                    console.print(f"🐳 Agent triggered Docker action: {args.get('action')}")
                     tool_result = manage_docker(action=args.get("action"), container_id=args.get("container_id", ""))
                     
                 elif function_name == "read_system_file":
-                    print(f"📂 Agent reading file: {args.get('filepath')}")
+                    console.print(f"📂 Agent reading file: {args.get('filepath')}")
                     tool_result = read_system_file(filepath=args.get("filepath"))
                     
                 elif function_name == "find_process_by_name":
-                    print(f"🔎 Agent searching for process: {args.get('search_term')}")
+                    console.print(f"🔎 Agent searching for process: {args.get('search_term')}")
                     tool_result = find_process_by_name(search_term=args.get("search_term"))
 
                 elif function_name == "check_system_logs":
-                    print(f"📖 Agent reading system logs...")
+                    console.print(f"📖 Agent reading system logs...")
                     
                     # If the AI sends null, Python reads it as None. Convert it back to an empty string.
                     raw_service = args.get("service")
@@ -206,11 +236,11 @@ def ask_oracle(query, chat_history):
                     )
 
                 elif function_name == "run_shell_command":
-                    print(f"💻 Agent running shell command: {args.get('command')}")
+                    console.print(f"💻 Agent running shell command: {args.get('command')}")
                     tool_result = run_shell_command(command=args.get("command"))
 
                 # elif function_name == "list_python_packages":
-                #     print("📦 Agent checking installed packages...")
+                #     console.print("📦 Agent checking installed packages...")
                 #     tool_result = list_python_packages()  
 
                 else:
@@ -233,7 +263,9 @@ def ask_oracle(query, chat_history):
             
         else:
             # If no tools were called, the AI is done working and gave us text.
-            print(f"\nOmniKernel 🧠: {response_message.content}\n")
+            console.print("\n[bold cyan]OmniKernel 🧠:[/bold cyan]")
+            console.print(Markdown(response_message.content))
+            print("\n")
             final_answer = response_message.content
             break
 
@@ -241,13 +273,19 @@ def ask_oracle(query, chat_history):
     chat_history.append({"role": "user", "content": query})
     chat_history.append({"role": "assistant", "content": final_answer})
 
+    # NEW: Persist the updated list to the hard drive
+    save_memory(chat_history)
+
 def start_chat():
     print("\n====================================================")
     print("   🌐 OmniKernel Phase 2: Autonomous Agent Active   ")
     print("====================================================")
     print("Ask about your code, or your system health. Type 'exit' to quit.\n")
     
-    history = []
+    history = load_memory()
+    if history:
+        console.print(f"🧠 Memory loaded. I remember our last {len(history) // 2} interactions.\n")
+
     while True:
         user_input = input("User 💻 >> ")
         if user_input.strip().lower() == "exit":
@@ -258,7 +296,7 @@ def start_chat():
         try:
             ask_oracle(user_input, history)
         except Exception as e:
-            print(f"\n❌ Pipeline Error: {e}\n")
+            console.print(f"\n❌ Pipeline Error: {e}\n")
 
 if __name__ == "__main__":
     start_chat()

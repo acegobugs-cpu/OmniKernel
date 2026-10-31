@@ -12,6 +12,7 @@ wheels/
 
 #local datas
 .omnikernel_db
+.agent_memory.json
 
 
 #env variables
