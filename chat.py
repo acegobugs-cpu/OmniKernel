@@ -1,7 +1,7 @@
 import os
 import json
 from clientAi import client
-from mem import MEMORY_FILE
+from prodConf.mem import MEMORY_FILE
 from monitor import get_system_metrics_text, get_top_processes_text, get_system_logs, find_process_by_name
 from actions import kill_process, manage_docker, read_system_file, run_shell_command, list_python_packages
 
