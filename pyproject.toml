@@ -1,7 +1,11 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
 [project]
 name = "omnikernel"
 version = "0.1.0"
-description = "Add your description here"
+description = "Autonomous AI System Monitor"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
@@ -12,3 +16,6 @@ dependencies = [
     "tqdm>=4.68.2",
     "watchdog>=6.0.0",
 ]
+
+[project.scripts]
+omni = "main:main"

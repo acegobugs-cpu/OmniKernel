@@ -1,5 +1,5 @@
 import os
-from env import load_dotenv
+from conf.env import load_dotenv
 from openai import OpenAI
 
 load_dotenv()
