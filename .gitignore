@@ -17,8 +17,3 @@ wheels/
 
 #env variables
 .env
-
-
-#production files
-env.py
-mem.py

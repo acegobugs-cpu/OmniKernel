@@ -7,6 +7,7 @@ from actions import kill_process, manage_docker, read_system_file, run_shell_com
 
 from rich.console import Console
 from rich.markdown import Markdown
+from rich.prompt import Confirm
 
 # Initialize the rich console
 console = Console()
@@ -198,53 +199,70 @@ def ask_oracle(query, chat_history):
             for tool_call in response_message.tool_calls:
                 function_name = tool_call.function.name
                 args = json.loads(tool_call.function.arguments) if tool_call.function.arguments else {}
+
+                # --- NEW: Human-in-the-Loop Safety Guardrail ---
+                DESTRUCTIVE_TOOLS = ["kill_process", "manage_docker", "write_system_file", "run_shell_command"]
+                tool_result = None # We use this to track if the user aborted the action
                 
-                if function_name == "check_hardware":
-                    console.print("⚙️ Agent triggered: [check_hardware]")
-                    tool_result = get_system_metrics_text()
+                if function_name in DESTRUCTIVE_TOOLS:
+                    console.print(f"\n[bold red]⚠️ AGENT REQUESTS PERMISSION TO RUN:[/bold red] [cyan]{function_name}[/cyan]")
+                    console.print(f"[dim]Arguments: {json.dumps(args, indent=2)}[/dim]")
                     
-                elif function_name == "check_processes":
-                    console.print("⚙️ Agent triggered: [check_processes]")
-                    tool_result = get_top_processes_text(limit=args.get("limit", 5))
-                    
-                elif function_name == "kill_process":
-                    console.print(f"⚠️ Agent actively killing PID {args.get('pid')}...")
-                    tool_result = kill_process(pid=args.get("pid"))
-                    
-                elif function_name == "manage_docker":
-                    console.print(f"🐳 Agent triggered Docker action: {args.get('action')}")
-                    tool_result = manage_docker(action=args.get("action"), container_id=args.get("container_id", ""))
-                    
-                elif function_name == "read_system_file":
-                    console.print(f"📂 Agent reading file: {args.get('filepath')}")
-                    tool_result = read_system_file(filepath=args.get("filepath"))
-                    
-                elif function_name == "find_process_by_name":
-                    console.print(f"🔎 Agent searching for process: {args.get('search_term')}")
-                    tool_result = find_process_by_name(search_term=args.get("search_term"))
+                    # Pause the app and wait for user input (y/n)
+                    is_approved = Confirm.ask("[bold yellow]Allow this action?[/bold yellow]")
+                    if not is_approved:
+                        tool_result = "❌ User denied permission to execute this action. Acknowledge this and stop."
+                        console.print("[red]Action aborted.[/red]")
 
-                elif function_name == "check_system_logs":
-                    console.print(f"📖 Agent reading system logs...")
-                    
-                    # If the AI sends null, Python reads it as None. Convert it back to an empty string.
-                    raw_service = args.get("service")
-                    safe_service = raw_service if raw_service is not None else ""
-                    
-                    tool_result = get_system_logs(
-                        lines=args.get("lines", 50), 
-                        service=safe_service
-                    )
+                # --- Execute only if the user didn't abort it ---
+                if tool_result is None:
+                
+                    if function_name == "check_hardware":
+                        console.print("⚙️ Agent triggered: [check_hardware]")
+                        tool_result = get_system_metrics_text()
+                        
+                    elif function_name == "check_processes":
+                        console.print("⚙️ Agent triggered: [check_processes]")
+                        tool_result = get_top_processes_text(limit=args.get("limit", 5))
+                        
+                    elif function_name == "kill_process":
+                        console.print(f"⚠️ Agent actively killing PID {args.get('pid')}...")
+                        tool_result = kill_process(pid=args.get("pid"))
+                        
+                    elif function_name == "manage_docker":
+                        console.print(f"🐳 Agent triggered Docker action: {args.get('action')}")
+                        tool_result = manage_docker(action=args.get("action"), container_id=args.get("container_id", ""))
+                        
+                    elif function_name == "read_system_file":
+                        console.print(f"📂 Agent reading file: {args.get('filepath')}")
+                        tool_result = read_system_file(filepath=args.get("filepath"))
+                        
+                    elif function_name == "find_process_by_name":
+                        console.print(f"🔎 Agent searching for process: {args.get('search_term')}")
+                        tool_result = find_process_by_name(search_term=args.get("search_term"))
 
-                elif function_name == "run_shell_command":
-                    console.print(f"💻 Agent running shell command: {args.get('command')}")
-                    tool_result = run_shell_command(command=args.get("command"))
+                    elif function_name == "check_system_logs":
+                        console.print(f"📖 Agent reading system logs...")
+                        
+                        # If the AI sends null, Python reads it as None. Convert it back to an empty string.
+                        raw_service = args.get("service")
+                        safe_service = raw_service if raw_service is not None else ""
+                        
+                        tool_result = get_system_logs(
+                            lines=args.get("lines", 50), 
+                            service=safe_service
+                        )
 
-                # elif function_name == "list_python_packages":
-                #     console.print("📦 Agent checking installed packages...")
-                #     tool_result = list_python_packages()  
+                    elif function_name == "run_shell_command":
+                        console.print(f"💻 Agent running shell command: {args.get('command')}")
+                        tool_result = run_shell_command(command=args.get("command"))
 
-                else:
-                    tool_result = f"Error: Tool {function_name} not found."
+                    # elif function_name == "list_python_packages":
+                    #     console.print("📦 Agent checking installed packages...")
+                    #     tool_result = list_python_packages()  
+
+                    else:
+                        tool_result = f"Error: Tool {function_name} not found." 
                 
                 # 3. Feed the result back into the history so the AI can read it
                 # Convert the result to a string and hard-cap it at 4000 characters
@@ -275,6 +293,63 @@ def ask_oracle(query, chat_history):
 
     # NEW: Persist the updated list to the hard drive
     save_memory(chat_history)
+
+def run_daemon_check():
+    """Runs a silent, background check of the system health."""
+    api_messages = [
+        {"role": "system", "content": "You are a background Ubuntu system monitor. Check hardware, processes, and logs."}
+    ]
+    
+    # The strict instructions for the background AI
+    prompt = (
+        "Check system hardware and the latest system logs. "
+        "If CPU > 1%, RAM > 85%, or there are critical errors in the logs, "
+        "output a single sentence explaining the issue. "
+        "If everything is healthy, output EXACTLY the word 'ALL_GOOD'."
+    )
+    
+    api_messages.append({"role": "user", "content": prompt})
+
+    while True:
+        response = client.chat.completions.create(
+            model="openai/gpt-oss-120b",
+            messages=api_messages,
+            tools=AVAILABLE_TOOLS,
+            tool_choice="auto"
+        )
+        
+        response_message = response.choices[0].message
+        
+        if response_message.tool_calls:
+            api_messages.append(response_message)
+            
+            for tool_call in response_message.tool_calls:
+                function_name = tool_call.function.name
+                args = json.loads(tool_call.function.arguments) if tool_call.function.arguments else {}
+                
+                # DAEMON SAFETY: Only allow read-only observation tools
+                if function_name == "check_hardware":
+                    tool_result = get_system_metrics_text()
+                elif function_name == "check_processes":
+                    tool_result = get_top_processes_text(limit=args.get("limit", 5))
+                elif function_name == "check_system_logs":
+                    safe_service = args.get("service") if args.get("service") is not None else ""
+                    tool_result = get_system_logs(lines=args.get("lines", 30), service=safe_service)
+                else:
+                    tool_result = f"❌ Tool '{function_name}' is disabled in background daemon mode for safety."
+                
+                safe_result = str(tool_result)
+                if len(safe_result) > 4000:
+                    safe_result = safe_result[:4000] + "\n...[TRUNCATED]"
+                
+                api_messages.append({
+                    "role": "tool",
+                    "tool_call_id": tool_call.id,
+                    "content": safe_result
+                })
+        else:
+            # Return whatever the AI decided the final state is
+            return response_message.content.strip()
 
 def start_chat():
     print("\n====================================================")
