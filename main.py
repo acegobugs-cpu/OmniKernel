@@ -1,9 +1,18 @@
 import os
 import sys
 import threading
+import subprocess
 
 from health import test_generation
-from chat import start_chat
+from chat import start_chat, ask_oracle, run_daemon_check, load_memory
+
+def send_desktop_notification(message):
+    """Triggers a native Ubuntu desktop popup."""
+    try:
+        # '-u critical' ensures the popup stays on screen until you manually click it away
+        subprocess.run(["notify-send", "-u", "critical", "OmniKernel Alert", message])
+    except Exception as e:
+        print(f"Failed to send notification: {e}")
 
 def main():
     print("🚀 Starting OmniKernel Master Pipeline...")
@@ -16,33 +25,38 @@ def main():
         print(f"❌ Critical Error: Cloud API is unreachable. {e}")
         sys.exit(1)
 
-    # # Step 2: Ingest and Store Codebase
-    # print("\n--- Phase 2: Indexing Workspace ---")
-    # current_workspace = os.path.dirname(os.path.abspath(__file__))
-    # if is_database_populated():
-    #     print("⚡ Database already exists. Skipping full index to save time.")
-    # else:
-    #     source_files = crawl_codebase(current_workspace)
-    #     if not source_files:
-    #         print("⚠️ No valid code files found.")
-    #     else:
-    #         processed_chunks = chunk_documents(source_files)
-    #         seed_vector_database(processed_chunks)
+    # Step 2: Check if the user passed arguments
+    if len(sys.argv) > 1:
+        command = sys.argv[1].lower()
         
-    # # Step 3: Start Watcher in the Background
-    # print("\n--- Phase 3: Starting Background File Watcher ---")
-    # # We set daemon=True so this background thread automatically dies when you type 'exit'
-    # watcher_thread = threading.Thread(
-    #     target=start_watching, 
-    #     args=(current_workspace,), 
-    #     daemon=True
-    # )
-    # watcher_thread.start()
+        # --- DAEMON MODE ---
+        if command in ["daemon", "--daemon"]:
+            result = run_daemon_check()
+            if "ALL_GOOD" not in result:
+                send_desktop_notification(result)
+            sys.exit(0)
+            
+        # --- ONE-SHOT MODE ---
+        query = " ".join(sys.argv[1:])
+        history = load_memory()
+        
+        from rich.console import Console
+        console = Console()
+        console.print(f"[dim]Executing one-shot command: '{query}'...[/dim]")
+        
+        ask_oracle(query, history)
+        sys.exit(0)
     
-    # Step 4: Start Interactive Chat Loop in the Foreground
-    print("\n--- Phase 4: Chat Interface Online ---")
-    print("Ask questions about your indexed files. Type 'exit' to quit.\n")
-    
+    # Step 3: INTERACTIVE MODE (No arguments)
+    print("🚀 Starting OmniKernel System Monitor...")
+    try:
+        test_generation()
+    except Exception as e:
+        print(f"❌ Critical Error: Cloud API is unreachable. {e}")
+        sys.exit(1)
+
+    print("\n✅ System primed. Booting Agentic Interface...")
+    start_chat()
     start_chat()
 
 if __name__ == "__main__":

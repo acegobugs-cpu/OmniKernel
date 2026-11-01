@@ -294,6 +294,63 @@ def ask_oracle(query, chat_history):
     # NEW: Persist the updated list to the hard drive
     save_memory(chat_history)
 
+def run_daemon_check():
+    """Runs a silent, background check of the system health."""
+    api_messages = [
+        {"role": "system", "content": "You are a background Ubuntu system monitor. Check hardware, processes, and logs."}
+    ]
+    
+    # The strict instructions for the background AI
+    prompt = (
+        "Check system hardware and the latest system logs. "
+        "If CPU > 1%, RAM > 85%, or there are critical errors in the logs, "
+        "output a single sentence explaining the issue. "
+        "If everything is healthy, output EXACTLY the word 'ALL_GOOD'."
+    )
+    
+    api_messages.append({"role": "user", "content": prompt})
+
+    while True:
+        response = client.chat.completions.create(
+            model="openai/gpt-oss-120b",
+            messages=api_messages,
+            tools=AVAILABLE_TOOLS,
+            tool_choice="auto"
+        )
+        
+        response_message = response.choices[0].message
+        
+        if response_message.tool_calls:
+            api_messages.append(response_message)
+            
+            for tool_call in response_message.tool_calls:
+                function_name = tool_call.function.name
+                args = json.loads(tool_call.function.arguments) if tool_call.function.arguments else {}
+                
+                # DAEMON SAFETY: Only allow read-only observation tools
+                if function_name == "check_hardware":
+                    tool_result = get_system_metrics_text()
+                elif function_name == "check_processes":
+                    tool_result = get_top_processes_text(limit=args.get("limit", 5))
+                elif function_name == "check_system_logs":
+                    safe_service = args.get("service") if args.get("service") is not None else ""
+                    tool_result = get_system_logs(lines=args.get("lines", 30), service=safe_service)
+                else:
+                    tool_result = f"❌ Tool '{function_name}' is disabled in background daemon mode for safety."
+                
+                safe_result = str(tool_result)
+                if len(safe_result) > 4000:
+                    safe_result = safe_result[:4000] + "\n...[TRUNCATED]"
+                
+                api_messages.append({
+                    "role": "tool",
+                    "tool_call_id": tool_call.id,
+                    "content": safe_result
+                })
+        else:
+            # Return whatever the AI decided the final state is
+            return response_message.content.strip()
+
 def start_chat():
     print("\n====================================================")
     print("   🌐 OmniKernel Phase 2: Autonomous Agent Active   ")
