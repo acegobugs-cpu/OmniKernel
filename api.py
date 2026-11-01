@@ -3,19 +3,19 @@ from pathlib import Path
 from fastapi import FastAPI
 from pydantic import BaseModel
 import uvicorn
-from chat import ask_oracle, load_memory, save_memory
+from chat import step_oracle
 
 app = FastAPI(title="OmniKernel AI Brain")
 
-class QueryRequest(BaseModel):
-    query: str
+class StepRequest(BaseModel):
+    query: str | None = None
+    tool_call_id: str | None = None
+    tool_result: str | None = None
 
-@app.post("/ask")
-def ask_ai(request: QueryRequest):
-    history = load_memory()
-    response_text = ask_oracle(request.query, history) 
-    save_memory(history)
-    return {"response": response_text}
+@app.post("/step")
+def step_ai(request: StepRequest):
+    """Takes a step in the conversation (either a new query or a tool result)."""
+    return step_oracle(request.query, request.tool_call_id, request.tool_result)
 
 if __name__ == "__main__":
     # Define the socket path

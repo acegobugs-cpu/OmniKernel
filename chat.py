@@ -2,15 +2,6 @@ import os
 import json
 from clientAi import client
 from conf.mem import MEMORY_FILE
-from monitor import get_system_metrics_text, get_top_processes_text, get_system_logs, find_process_by_name
-from actions import kill_process, manage_docker, read_system_file, run_shell_command, list_python_packages
-
-from rich.console import Console
-from rich.markdown import Markdown
-from rich.prompt import Confirm
-
-# Initialize the rich console
-console = Console()
 
 # 1. Define the "Menu" of tools the AI is allowed to use
 AVAILABLE_TOOLS = [
@@ -127,252 +118,70 @@ AVAILABLE_TOOLS = [
             }
         }
     },
-    # {
-    #     "type": "function",
-    #     "function": {
-    #         "name": "list_python_packages",
-    #         "description": "List all installed Python dependencies and pip packages.",
-    #         "parameters": {"type": "object", "properties": {}}
-    #     }
-    # }
 ]
 
 
 def load_memory():
-    """Loads the previous conversation history from disk."""
     if os.path.exists(MEMORY_FILE):
-        try:
-            with open(MEMORY_FILE, 'r', encoding='utf-8') as f:
-                # Load history, but only keep the last 20 messages 
-                # to prevent hitting the API token limit on long conversations.
-                history = json.load(f)
-                return history[-20:] 
-        except Exception as e:
-            console.print(f"⚠️ Could not load memory: {e}")
+        with open(MEMORY_FILE, 'r', encoding='utf-8') as f:
+            return json.load(f)[-20:]
     return []
 
 def save_memory(history):
-    """Saves the current conversation history to disk."""
-    try:
-        with open(MEMORY_FILE, 'w', encoding='utf-8') as f:
-            json.dump(history, f, indent=4)
-    except Exception as e:
-        console.print(f"⚠️ Could not save memory: {e}")
+    with open(MEMORY_FILE, 'w', encoding='utf-8') as f:
+        json.dump(history, f, indent=4)
 
-def ask_oracle(query, chat_history):
-    # # --- PHASE 1: Codebase RAG ---
-    # results = collection.query(query_texts=[query], n_results=3)
-    # retrieved_context = ""
-    # if results and results['documents']:
-    #     for doc, metadata in zip(results['documents'][0], results['metadatas'][0]):
-    #         retrieved_context += f"File: {metadata['relative_path']}\nCode:\n{doc}\n---\n"
-
-    # augmented_query = f"Code Context:\n{retrieved_context}\nUser Question: {query}"
-
-    api_messages = [
-        {"role": "system", "content": "You are OmniKernel, an autonomous system monitor and codebase oracle. Use your tools to check system health if the user asks about it."}
-    ]
-    api_messages.extend(chat_history)
-    api_messages.append({"role": "user", "content": query})
-    # api_messages.append({"role": "user", "content": augmented_query})
-
-    # --- PHASE 2: The Agentic Loop ---
-    # The agent will stay in this loop until all tasks are finished.
-    final_answer = ""
-    
-    while True:
-        response = client.chat.completions.create(
-            model="openai/gpt-oss-120b",
-            messages=api_messages,
-            tools=AVAILABLE_TOOLS,
-            tool_choice="auto"
-        )
-        
-        response_message = response.choices[0].message
-        
-        # If the AI decides it needs to use a tool...
-        if response_message.tool_calls:
-            # 1. Save the AI's tool request to the message history
-            api_messages.append(response_message)
-            
-            # 2. Execute every tool the AI asked for
-            for tool_call in response_message.tool_calls:
-                function_name = tool_call.function.name
-                args = json.loads(tool_call.function.arguments) if tool_call.function.arguments else {}
-
-                # --- NEW: Human-in-the-Loop Safety Guardrail ---
-                DESTRUCTIVE_TOOLS = ["kill_process", "manage_docker", "write_system_file", "run_shell_command"]
-                tool_result = None # We use this to track if the user aborted the action
-                
-                if function_name in DESTRUCTIVE_TOOLS:
-                    console.print(f"\n[bold red]⚠️ AGENT REQUESTS PERMISSION TO RUN:[/bold red] [cyan]{function_name}[/cyan]")
-                    console.print(f"[dim]Arguments: {json.dumps(args, indent=2)}[/dim]")
-                    
-                    # Pause the app and wait for user input (y/n)
-                    is_approved = Confirm.ask("[bold yellow]Allow this action?[/bold yellow]")
-                    if not is_approved:
-                        tool_result = "❌ User denied permission to execute this action. Acknowledge this and stop."
-                        console.print("[red]Action aborted.[/red]")
-
-                # --- Execute only if the user didn't abort it ---
-                if tool_result is None:
-                
-                    if function_name == "check_hardware":
-                        console.print("⚙️ Agent triggered: [check_hardware]")
-                        tool_result = get_system_metrics_text()
-                        
-                    elif function_name == "check_processes":
-                        console.print("⚙️ Agent triggered: [check_processes]")
-                        tool_result = get_top_processes_text(limit=args.get("limit", 5))
-                        
-                    elif function_name == "kill_process":
-                        console.print(f"⚠️ Agent actively killing PID {args.get('pid')}...")
-                        tool_result = kill_process(pid=args.get("pid"))
-                        
-                    elif function_name == "manage_docker":
-                        console.print(f"🐳 Agent triggered Docker action: {args.get('action')}")
-                        tool_result = manage_docker(action=args.get("action"), container_id=args.get("container_id", ""))
-                        
-                    elif function_name == "read_system_file":
-                        console.print(f"📂 Agent reading file: {args.get('filepath')}")
-                        tool_result = read_system_file(filepath=args.get("filepath"))
-                        
-                    elif function_name == "find_process_by_name":
-                        console.print(f"🔎 Agent searching for process: {args.get('search_term')}")
-                        tool_result = find_process_by_name(search_term=args.get("search_term"))
-
-                    elif function_name == "check_system_logs":
-                        console.print(f"📖 Agent reading system logs...")
-                        
-                        # If the AI sends null, Python reads it as None. Convert it back to an empty string.
-                        raw_service = args.get("service")
-                        safe_service = raw_service if raw_service is not None else ""
-                        
-                        tool_result = get_system_logs(
-                            lines=args.get("lines", 50), 
-                            service=safe_service
-                        )
-
-                    elif function_name == "run_shell_command":
-                        console.print(f"💻 Agent running shell command: {args.get('command')}")
-                        tool_result = run_shell_command(command=args.get("command"))
-
-                    # elif function_name == "list_python_packages":
-                    #     console.print("📦 Agent checking installed packages...")
-                    #     tool_result = list_python_packages()  
-
-                    else:
-                        tool_result = f"Error: Tool {function_name} not found." 
-                
-                # 3. Feed the result back into the history so the AI can read it
-                # Convert the result to a string and hard-cap it at 4000 characters
-                safe_result = str(tool_result)
-                if len(safe_result) > 4000:
-                    safe_result = safe_result[:4000] + "\n...[SYSTEM: OUTPUT TRUNCATED TO SAVE TOKENS]"
-                
-                api_messages.append({
-                    "role": "tool",
-                    "tool_call_id": tool_call.id,
-                    "content": safe_result
-                })
-            
-            # The loop automatically repeats here! The AI reads the tool results 
-            # and decides if it needs to call another tool (like kill_process).
-            
-        else:
-            # If no tools were called, the AI is done working and gave us text.
-            console.print("\n[bold cyan]OmniKernel 🧠:[/bold cyan]")
-            console.print(Markdown(response_message.content))
-            print("\n")
-            final_answer = response_message.content
-            break
-
-    # Save the final interaction to conversation memory
-    chat_history.append({"role": "user", "content": query})
-    chat_history.append({"role": "assistant", "content": final_answer})
-
-    # NEW: Persist the updated list to the hard drive
-    save_memory(chat_history)
-    return final_answer
-
-def run_daemon_check():
-    """Runs a silent, background check of the system health."""
-    api_messages = [
-        {"role": "system", "content": "You are a background Ubuntu system monitor. Check hardware, processes, and logs."}
-    ]
-    
-    # The strict instructions for the background AI
-    prompt = (
-        "Check system hardware and the latest system logs. "
-        "If CPU > 1%, RAM > 85%, or there are critical errors in the logs, "
-        "output a single sentence explaining the issue. "
-        "If everything is healthy, output EXACTLY the word 'ALL_GOOD'."
-    )
-    
-    api_messages.append({"role": "user", "content": prompt})
-
-    while True:
-        response = client.chat.completions.create(
-            model="openai/gpt-oss-120b",
-            messages=api_messages,
-            tools=AVAILABLE_TOOLS,
-            tool_choice="auto"
-        )
-        
-        response_message = response.choices[0].message
-        
-        if response_message.tool_calls:
-            api_messages.append(response_message)
-            
-            for tool_call in response_message.tool_calls:
-                function_name = tool_call.function.name
-                args = json.loads(tool_call.function.arguments) if tool_call.function.arguments else {}
-                
-                # DAEMON SAFETY: Only allow read-only observation tools
-                if function_name == "check_hardware":
-                    tool_result = get_system_metrics_text()
-                elif function_name == "check_processes":
-                    tool_result = get_top_processes_text(limit=args.get("limit", 5))
-                elif function_name == "check_system_logs":
-                    safe_service = args.get("service") if args.get("service") is not None else ""
-                    tool_result = get_system_logs(lines=args.get("lines", 30), service=safe_service)
-                else:
-                    tool_result = f"❌ Tool '{function_name}' is disabled in background daemon mode for safety."
-                
-                safe_result = str(tool_result)
-                if len(safe_result) > 4000:
-                    safe_result = safe_result[:4000] + "\n...[TRUNCATED]"
-                
-                api_messages.append({
-                    "role": "tool",
-                    "tool_call_id": tool_call.id,
-                    "content": safe_result
-                })
-        else:
-            # Return whatever the AI decided the final state is
-            return response_message.content.strip()
-
-def start_chat():
-    print("\n====================================================")
-    print("   🌐 OmniKernel Phase 2: Autonomous Agent Active   ")
-    print("====================================================")
-    print("Ask about your code, or your system health. Type 'exit' to quit.\n")
-    
+def step_oracle(query=None, tool_call_id=None, tool_result=None):
+    """Processes a single AI turn and either returns a final answer or requests a tool execution."""
+    api_messages = [{"role": "system", "content": "You are OmniKernel, an autonomous Ubuntu system monitor."}]
     history = load_memory()
-    if history:
-        console.print(f"🧠 Memory loaded. I remember our last {len(history) // 2} interactions.\n")
 
-    while True:
-        user_input = input("User 💻 >> ")
-        if user_input.strip().lower() == "exit":
-            break
-        if not user_input.strip():
-            continue
-            
-        try:
-            ask_oracle(user_input, history)
-        except Exception as e:
-            console.print(f"\n❌ Pipeline Error: {e}\n")
+    # Append new context based on what Go just sent us
+    if tool_result and tool_call_id:
+        history.append({
+            "role": "tool",
+            "tool_call_id": tool_call_id,
+            "content": str(tool_result)
+        })
+    elif query:
+        history.append({"role": "user", "content": query})
 
-if __name__ == "__main__":
-    start_chat()
+    api_messages.extend(history)
+
+    # Ask the AI what to do next
+    response = client.chat.completions.create(
+        model="openai/gpt-oss-120b",
+        messages=api_messages,
+        tools=AVAILABLE_TOOLS,
+        tool_choice="auto"
+    )
+
+    msg = response.choices[0].message
+
+    # DECISION A: The AI wants to run a tool. Ask Go to run it.
+    if msg.tool_calls:
+        tool = msg.tool_calls[0] # We process one at a time for simplicity
+        
+        # Save the AI's intent to memory so we remember why we are running this tool
+        history.append({
+            "role": "assistant", 
+            "tool_calls": [{"id": tool.id, "type": "function", "function": {"name": tool.function.name, "arguments": tool.function.arguments}}]
+        })
+        save_memory(history)
+        
+        return {
+            "status": "tool_call",
+            "tool_call_id": tool.id,
+            "name": tool.function.name,
+            "arguments": tool.function.arguments
+        }
+        
+    # DECISION B: The AI is done thinking and has a final text answer.
+    else:
+        history.append({"role": "assistant", "content": msg.content})
+        save_memory(history)
+        
+        return {
+            "status": "done",
+            "response": msg.content
+        }
