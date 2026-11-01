@@ -293,6 +293,7 @@ def ask_oracle(query, chat_history):
 
     # NEW: Persist the updated list to the hard drive
     save_memory(chat_history)
+    return final_answer
 
 def run_daemon_check():
     """Runs a silent, background check of the system health."""
