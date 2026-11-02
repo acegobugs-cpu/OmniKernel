@@ -54,13 +54,17 @@ func GetSystemMetricsText() string {
 
 // GetSystemLogs fetches recent system logs and strictly truncates them to protect API token limits.
 func GetSystemLogs(lines int, service string) string {
+	if lines <= 0 {
+		lines = 50
+	}
 	if lines > 100 {
 		lines = 100 // Hard cap
 	}
 
 	args := []string{"-n", strconv.Itoa(lines), "--no-pager"}
-	if service != "" {
-		args = append(args, "-u", service)
+	cleanService := strings.TrimSpace(service)
+	if cleanService != "" {
+		args = append(args, "-u", cleanService)
 	}
 
 	cmd := exec.Command("journalctl", args...)
@@ -68,6 +72,9 @@ func GetSystemLogs(lines int, service string) string {
 	outStr := strings.TrimSpace(string(output))
 
 	if err != nil {
+		if outStr == "" {
+			return fmt.Sprintf("❌ Failed to fetch logs: %v", err)
+		}
 		return fmt.Sprintf("❌ Failed to fetch logs: %s", outStr)
 	}
 
@@ -88,8 +95,10 @@ func GetTopProcessesText(limit int) string {
 	if limit <= 0 {
 		limit = 5
 	}
+	if limit > 50 {
+		limit = 50
+	}
 
-	// ps aux --sort=-%cpu | head -n (limit + 1)
 	cmdStr := fmt.Sprintf("ps aux --sort=-%%cpu | head -n %d", limit+1)
 	cmd := exec.Command("sh", "-c", cmdStr)
 	output, err := cmd.CombinedOutput()
@@ -100,14 +109,20 @@ func GetTopProcessesText(limit int) string {
 	return fmt.Sprintf("--- Top Processes ---\n%s", strings.TrimSpace(string(output)))
 }
 
-// FindProcessByName searches for a running application.
+// FindProcessByName searches for a running application safely.
 func FindProcessByName(searchTerm string) string {
-	cmdStr := fmt.Sprintf("ps aux | grep -i '%s' | grep -v grep", searchTerm)
+	cleanTerm := strings.ReplaceAll(strings.ReplaceAll(searchTerm, "'", ""), ";", "")
+	cleanTerm = strings.TrimSpace(cleanTerm)
+	if cleanTerm == "" {
+		return "❌ Empty search term."
+	}
+
+	cmdStr := fmt.Sprintf("ps aux | grep -i '%s' | grep -v grep", cleanTerm)
 	cmd := exec.Command("sh", "-c", cmdStr)
 	output, err := cmd.CombinedOutput()
 
 	if err != nil || len(output) == 0 {
-		return fmt.Sprintf("❌ No process found matching: %s", searchTerm)
+		return fmt.Sprintf("❌ No process found matching: %s", cleanTerm)
 	}
 	return fmt.Sprintf("--- Process Search Results ---\n%s", strings.TrimSpace(string(output)))
 }

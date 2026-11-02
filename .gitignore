@@ -1,19 +1,28 @@
-# Python-generated files
+# Python
 __pycache__/
+**/__pycache__/
 *.py[oc]
 build/
+**/build/
 dist/
+**/dist/
 wheels/
 *.egg-info
+**/*.egg-info/
+.venv/
+**/.venv/
 
-# Virtual environments
-.venv
+# Go binaries and test artifacts
+omni
+*.exe
+*.test
+*.out
 
-
-#local datas
-.omnikernel_db
+# Local data & memory
+.omnikernel_db/
+**/.omnikernel_db/
 .agent_memory.json
+**/.agent_memory.json
 
-
-#env variables
-.env
+# Environment variables
+**/.env

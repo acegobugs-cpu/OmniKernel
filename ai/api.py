@@ -1,9 +1,20 @@
 import os
+import sys
 from pathlib import Path
 from fastapi import FastAPI
 from pydantic import BaseModel
 import uvicorn
-from chat import step_oracle
+
+_CURRENT_DIR = Path(__file__).resolve().parent
+_REPO_ROOT = _CURRENT_DIR.parent
+for _p in (str(_REPO_ROOT), str(_CURRENT_DIR)):
+    if _p not in sys.path:
+        sys.path.insert(0, _p)
+
+try:
+    from ai.chat import step_oracle
+except (ImportError, ModuleNotFoundError):
+    from chat import step_oracle
 
 app = FastAPI(title="OmniKernel AI Brain")
 
@@ -18,12 +29,17 @@ def step_ai(request: StepRequest):
     return step_oracle(request.query, request.tool_call_id, request.tool_result)
 
 if __name__ == "__main__":
-    # Define the socket path
-    socket_path = str(Path.home() / ".omnikernel" / "omni.sock")
+    # Ensure ~/.omnikernel directory exists
+    sock_dir = Path.home() / ".omnikernel"
+    sock_dir.mkdir(parents=True, exist_ok=True)
+    socket_path = str(sock_dir / "omni.sock")
     
     # Clean up old socket if it exists
     if os.path.exists(socket_path):
-        os.remove(socket_path)
+        try:
+            os.remove(socket_path)
+        except OSError:
+            pass
         
     print(f"Starting Python AI Brain on socket: {socket_path}")
     uvicorn.run(app, uds=socket_path)

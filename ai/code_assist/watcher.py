@@ -3,8 +3,12 @@ import os
 import time
 from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
-from ingest import crawl_codebase, chunk_documents
-from store import update_file_in_database, remove_file_from_database
+try:
+    from .ingest import crawl_codebase, chunk_documents
+    from .store import update_file_in_database, remove_file_from_database
+except ImportError:
+    from ingest import crawl_codebase, chunk_documents
+    from store import update_file_in_database, remove_file_from_database
 # We will import our database updater logic here in a moment
 
 # Reuse the same configuration from your ingestion step

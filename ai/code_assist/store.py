@@ -1,6 +1,9 @@
 import os
 import chromadb
-from ingest import crawl_codebase, chunk_documents
+try:
+    from .ingest import crawl_codebase, chunk_documents
+except ImportError:
+    from ingest import crawl_codebase, chunk_documents
 
 def is_database_populated():
     """Checks if the vector database already contains indexed files."""

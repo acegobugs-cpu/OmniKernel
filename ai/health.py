@@ -1,4 +1,16 @@
-from clientAi import client
+import sys
+from pathlib import Path
+
+_CURRENT_DIR = Path(__file__).resolve().parent
+_REPO_ROOT = _CURRENT_DIR.parent
+for _p in (str(_REPO_ROOT), str(_CURRENT_DIR)):
+    if _p not in sys.path:
+        sys.path.insert(0, _p)
+
+try:
+    from ai.clientAi import client
+except (ImportError, ModuleNotFoundError):
+    from clientAi import client
 
 def test_generation():
     print("🚀 Querying Cloud Generation Model...")

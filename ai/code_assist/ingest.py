@@ -41,8 +41,7 @@ def crawl_codebase(root_dir):
                 except Exception as e:
                     print(f"⚠️ Error reading {relative_path}: {e}")
                     
-    for i in raw_documents:                    
-        print(f"✅ Found {i["metadata"]} code files.")
+    print(f"✅ Scanned {len(raw_documents)} code files.")
     return raw_documents
 
 def chunk_documents(documents):

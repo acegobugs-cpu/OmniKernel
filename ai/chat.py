@@ -1,11 +1,23 @@
 import os
+import sys
 import json
-from clientAi import client
-from conf.mem import MEMORY_FILE
+from pathlib import Path
+
+_CURRENT_DIR = Path(__file__).resolve().parent
+_REPO_ROOT = _CURRENT_DIR.parent
+for _p in (str(_REPO_ROOT), str(_CURRENT_DIR)):
+    if _p not in sys.path:
+        sys.path.insert(0, _p)
+
+try:
+    from ai.clientAi import client
+    from ai.conf.mem import MEMORY_FILE
+except (ImportError, ModuleNotFoundError):
+    from clientAi import client
+    from conf.mem import MEMORY_FILE
 
 # 1. Define the "Menu" of tools the AI is allowed to use
 AVAILABLE_TOOLS = [
-    # ... (keep your existing check_hardware and check_processes tools here) ...
     {
         "type": "function",
         "function": {
@@ -90,6 +102,21 @@ AVAILABLE_TOOLS = [
     {
         "type": "function",
         "function": {
+            "name": "write_system_file",
+            "description": "Write or overwrite a file with new content. System directories like /etc and /bin are protected.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "filepath": {"type": "string", "description": "The destination path of the file."},
+                    "content": {"type": "string", "description": "The content to write into the file."}
+                },
+                "required": ["filepath", "content"]
+            }
+        }
+    },
+    {
+        "type": "function",
+        "function": {
             "name": "check_system_logs",
             "description": "Read the recent Ubuntu system logs using journalctl. Useful for diagnosing crashes or service failures.",
             "parameters": {
@@ -123,13 +150,19 @@ AVAILABLE_TOOLS = [
 
 def load_memory():
     if os.path.exists(MEMORY_FILE):
-        with open(MEMORY_FILE, 'r', encoding='utf-8') as f:
-            return json.load(f)[-20:]
+        try:
+            with open(MEMORY_FILE, 'r', encoding='utf-8') as f:
+                return json.load(f)[-20:]
+        except (json.JSONDecodeError, OSError):
+            return []
     return []
 
 def save_memory(history):
-    with open(MEMORY_FILE, 'w', encoding='utf-8') as f:
-        json.dump(history, f, indent=4)
+    try:
+        with open(MEMORY_FILE, 'w', encoding='utf-8') as f:
+            json.dump(history, f, indent=4)
+    except OSError as e:
+        print(f"⚠️ Failed to save memory: {e}")
 
 def step_oracle(query=None, tool_call_id=None, tool_result=None):
     """Processes a single AI turn and either returns a final answer or requests a tool execution."""
@@ -149,39 +182,46 @@ def step_oracle(query=None, tool_call_id=None, tool_result=None):
     api_messages.extend(history)
 
     # Ask the AI what to do next
-    response = client.chat.completions.create(
-        model="openai/gpt-oss-120b",
-        messages=api_messages,
-        tools=AVAILABLE_TOOLS,
-        tool_choice="auto"
-    )
+    try:
+        response = client.chat.completions.create(
+            model="openai/gpt-oss-120b",
+            messages=api_messages,
+            tools=AVAILABLE_TOOLS,
+            tool_choice="auto"
+        )
+    except Exception as e:
+        return {
+            "status": "done",
+            "response": f"❌ Error communicating with AI provider: {e}"
+        }
 
     msg = response.choices[0].message
 
     # DECISION A: The AI wants to run a tool. Ask Go to run it.
     if msg.tool_calls:
-        tool = msg.tool_calls[0] # We process one at a time for simplicity
+        tool = msg.tool_calls[0]  # We process one at a time for simplicity
+        tool_id = tool.id or "call_default"
         
         # Save the AI's intent to memory so we remember why we are running this tool
         history.append({
             "role": "assistant", 
-            "tool_calls": [{"id": tool.id, "type": "function", "function": {"name": tool.function.name, "arguments": tool.function.arguments}}]
+            "tool_calls": [{"id": tool_id, "type": "function", "function": {"name": tool.function.name, "arguments": tool.function.arguments}}]
         })
         save_memory(history)
         
         return {
             "status": "tool_call",
-            "tool_call_id": tool.id,
+            "tool_call_id": tool_id,
             "name": tool.function.name,
             "arguments": tool.function.arguments
         }
         
     # DECISION B: The AI is done thinking and has a final text answer.
     else:
-        history.append({"role": "assistant", "content": msg.content})
+        history.append({"role": "assistant", "content": msg.content or ""})
         save_memory(history)
         
         return {
             "status": "done",
-            "response": msg.content
+            "response": msg.content or ""
         }

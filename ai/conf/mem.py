@@ -4,5 +4,5 @@ from pathlib import Path
 CONFIG_DIR = Path.home() / ".omnikernel"
 CONFIG_DIR.mkdir(parents=True, exist_ok=True)
 
-# Save memory globally
-MEMORY_FILE = ".agent_memory.json"
+# Save memory globally in ~/.omnikernel/agent_memory.json
+MEMORY_FILE = CONFIG_DIR / "agent_memory.json"

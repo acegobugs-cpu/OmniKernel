@@ -9,21 +9,21 @@ description = "Autonomous AI System Monitor"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
-    "psutil",
-    "rich",
     "chromadb>=1.5.9",
+    "fastapi>=0.115.0",
     "langchain-text-splitters>=1.1.2",
     "ollama>=0.6.2",
     "openai>=2.41.1",
+    "psutil>=5.9.0",
+    "python-dotenv>=1.0.0",
+    "rich>=13.0.0",
     "tqdm>=4.68.2",
+    "uvicorn>=0.30.0",
     "watchdog>=6.0.0",
 ]
 
-[project.scripts]
-omni = "main:main"
-
 [tool.setuptools]
-py-modules = ["main", "chat", "actions", "monitor", "health", "clientAi"]
+py-modules = ["api", "chat", "clientAi", "health"]
 
 [tool.setuptools.packages.find]
-include = ["prodConf*", "utils*"]
+include = ["conf*", "code_assist*", "utils*"]
