@@ -45,26 +45,40 @@ type apiResponse struct {
 	Arguments  string `json:"arguments,omitempty"`
 }
 
+type DiskInfo struct {
+	MountPoint string
+	TotalGB    float64
+	UsedGB     float64
+	FreeGB     float64
+}
+
 type model struct {
-	width      int
-	height     int
-	cpuUsage   float64
-	coreUsages []float64
-	ramUsage   float64
-	ramUsedGB  float64
-	ramTotalGB float64
-	diskUsages []string
-	cpuTemp    float64
-	netSentMB  float64
-	netRecvMB  float64
-	hostOS     string
-	uptimeSec  uint64
-	load1      float64
-	load5      float64
-	load15     float64
-	chatLog    string
-	textInput  textinput.Model
-	isThinking bool
+	width       int
+	height      int
+	cpuUsage    float64
+	coreUsages  []float64
+	ramUsage    float64
+	ramUsedGB   float64
+	ramAvailGB  float64
+	ramCachedGB float64
+	ramFreeGB   float64
+	ramTotalGB  float64
+	disks       []DiskInfo
+	diskUsages  []string
+	swapUsedGB  float64
+	swapFreeGB  float64
+	swapTotalGB float64
+	cpuTemp     float64
+	netSentMB   float64
+	netRecvMB   float64
+	hostOS      string
+	uptimeSec   uint64
+	load1       float64
+	load5       float64
+	load15      float64
+	chatLog     string
+	textInput   textinput.Model
+	isThinking  bool
 }
 
 func initialModel() model {
@@ -272,16 +286,30 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		// 4. Disks
 		if parts, err := disk.Partitions(false); err == nil {
-			var disks []string
+			var activeDisks []DiskInfo
+			const gb = 1024.0 * 1024.0 * 1024.0 // Byte to Gigabyte conversion factor
+
 			for _, p := range parts {
+				// Filter out system mounts that clutter the UI
 				if strings.HasPrefix(p.Mountpoint, "/snap") || strings.HasPrefix(p.Mountpoint, "/boot") {
 					continue
 				}
+
 				if u, err := disk.Usage(p.Mountpoint); err == nil {
-					disks = append(disks, fmt.Sprintf("%s: %.1f%%", p.Mountpoint, u.UsedPercent))
+					// Prevent adding empty partitions or CD-ROM drives
+					if u.Total == 0 {
+						continue
+					}
+
+					activeDisks = append(activeDisks, DiskInfo{
+						MountPoint: p.Mountpoint,
+						TotalGB:    float64(u.Total) / gb,
+						UsedGB:     float64(u.Used) / gb,
+						FreeGB:     float64(u.Free) / gb,
+					})
 				}
 			}
-			m.diskUsages = disks
+			m.disks = activeDisks
 		}
 		// 5. Temperature
 		if temps, err := host.SensorsTemperatures(); err == nil && len(temps) > 0 {
