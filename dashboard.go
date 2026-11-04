@@ -60,60 +60,74 @@ func (m model) View() string {
 	}
 
 	// --- 3. TOP ROW ---
-	barHeight := r1Height - 7
+	barHeight := r1Height - 8
 	barHeight = max(barHeight, 2)
 
-	// 1. CPU CHART
-	cpuGroup := makeChartGroup("CPU", []barData{
-		{Label: "Usage", Value: m.cpuUsage, Max: 100, Color: "42", Text: fmt.Sprintf("%.0f%%", m.cpuUsage)},
-	}, barHeight)
+	var allBars []string
 
-	// 2. RAM CHART (Max height is Total RAM)
-	ramGroup := makeChartGroup("Memory", []barData{
-		{Label: "Total", Value: m.ramTotalGB, Max: m.ramTotalGB, Color: "240", Text: fmt.Sprintf("%.1fG", m.ramTotalGB)},
-		{Label: "Used", Value: m.ramUsedGB, Max: m.ramTotalGB, Color: "205", Text: fmt.Sprintf("%.1fG", m.ramUsedGB)},
-		{Label: "Avail", Value: m.ramAvailGB, Max: m.ramTotalGB, Color: "42", Text: fmt.Sprintf("%.1fG", m.ramAvailGB)},
-		{Label: "Cache", Value: m.ramCachedGB, Max: m.ramTotalGB, Color: "220", Text: fmt.Sprintf("%.1fG", m.ramCachedGB)},
-		{Label: "Free", Value: m.ramFreeGB, Max: m.ramTotalGB, Color: "39", Text: fmt.Sprintf("%.1fG", m.ramFreeGB)},
-	}, barHeight)
-
-	// 3. SWAP CHART
-	swapGroup := makeChartGroup("Swap", []barData{
-		{Label: "Total", Value: m.swapTotalGB, Max: m.swapTotalGB, Color: "240", Text: fmt.Sprintf("%.1fG", m.swapTotalGB)},
-		{Label: "Used", Value: m.swapUsedGB, Max: m.swapTotalGB, Color: "203", Text: fmt.Sprintf("%.1fG", m.swapUsedGB)},
-		{Label: "Free", Value: m.swapFreeGB, Max: m.swapTotalGB, Color: "39", Text: fmt.Sprintf("%.1fG", m.swapFreeGB)},
-	}, barHeight)
-
-	// 4. Disk CHART
-	var diskGroups []string
+	// 1. DISKS (Dynamically added first)
 	for _, disk := range m.disks {
-		dg := makeChartGroup(disk.MountPoint, []barData{
-			{Label: "Total", Value: disk.TotalGB, Max: disk.TotalGB, Color: "240", Text: fmt.Sprintf("%.0fG", disk.TotalGB)},
-			{Label: "Used", Value: disk.UsedGB, Max: disk.TotalGB, Color: "205", Text: fmt.Sprintf("%.0fG", disk.UsedGB)},
-			{Label: "Free", Value: disk.FreeGB, Max: disk.TotalGB, Color: "42", Text: fmt.Sprintf("%.0fG", disk.FreeGB)},
+		b := drawStackedBar(stackedBarData{
+			Title: disk.MountPoint,
+			Used:  disk.UsedGB,
+			Free:  disk.FreeGB,
+			Total: disk.TotalGB,
+			Labels: []string{
+				fmt.Sprintf("T:%.0fG", disk.TotalGB),
+				fmt.Sprintf("U:%.0fG", disk.UsedGB),
+				fmt.Sprintf("F:%.0fG", disk.FreeGB),
+			},
 		}, barHeight)
-		diskGroups = append(diskGroups, dg)
+		allBars = append(allBars, b)
 	}
 
-	// Join all disk charts dynamically
-	diskMetrics := ""
-	if len(diskGroups) > 0 {
-		// Only one JoinHorizontal is needed
-		diskMetrics = lipgloss.JoinHorizontal(lipgloss.Top, diskGroups...)
-	} else {
-		diskMetrics = "No disk data" // Fallback to prove the UI block is rendering
-	}
+	// 2. SWAP
+	swapBar := drawStackedBar(stackedBarData{
+		Title: "Swap",
+		Used:  m.swapUsedGB,
+		Free:  m.swapFreeGB,
+		Total: m.swapTotalGB,
+		Labels: []string{
+			fmt.Sprintf("T:%.1fG", m.swapTotalGB),
+			fmt.Sprintf("U:%.1fG", m.swapUsedGB),
+			fmt.Sprintf("F:%.1fG", m.swapFreeGB),
+		},
+	}, barHeight)
+	allBars = append(allBars, swapBar)
 
-	// Join CPU, RAM, and Swap side-by-side with spacing
-	sysMetrics := lipgloss.JoinHorizontal(lipgloss.Top,
-		cpuGroup,
-		lipgloss.NewStyle().Width(4).Render(""), // Spacer
-		ramGroup,
-		lipgloss.NewStyle().Width(4).Render(""), // Spacer
-		swapGroup,
-		lipgloss.NewStyle().Width(4).Render(""), // Spacer
-		diskMetrics,
-	)
+	// 3. MEMORY
+	memBar := drawStackedBar(stackedBarData{
+		Title: "Mem",
+		Used:  m.ramUsedGB,
+		Free:  m.ramFreeGB,
+		Total: m.ramTotalGB,
+		Labels: []string{
+			fmt.Sprintf("T:%.1fG", m.ramTotalGB),
+			fmt.Sprintf("U:%.1fG", m.ramUsedGB),
+			fmt.Sprintf("F:%.1fG", m.ramFreeGB),
+		},
+	}, barHeight)
+	allBars = append(allBars, memBar)
+
+	// 4. CPU (Total is always 100%)
+	cpuFree := 100.0 - m.cpuUsage
+	cpuBar := drawStackedBar(stackedBarData{
+		Title: "CPU",
+		Used:  m.cpuUsage,
+		Free:  cpuFree,
+		Total: 100.0,
+		Labels: []string{
+			"T:100%",
+			fmt.Sprintf("U:%.0f%%", m.cpuUsage),
+			fmt.Sprintf("F:%.0f%%", cpuFree),
+		},
+	}, barHeight)
+	allBars = append(allBars, cpuBar)
+
+	// Join all the bars side-by-side.
+	// Lipgloss automatically handles the spacing because we added `.Padding(0, 1)` in drawStackedBar.
+	sysMetrics := lipgloss.JoinHorizontal(lipgloss.Top, allBars...)
+
 	r1LeftBox := makeBox(r1LeftWidth, r1Height, "💻 System Overview", sysMetrics, "63")
 
 	var coresStr strings.Builder
@@ -172,75 +186,56 @@ func (m model) View() string {
 	return fullUI
 }
 
-// Braille characters from bottom to top (0 to 4 dots tall)
-var brailleLevels = []string{" ", "⣀", "⣤", "⣶", "⣿"}
-
-// barData represents a single vertical column in the chart
-type barData struct {
-	Label string  // e.g., "Used", "Free"
-	Value float64 // The actual number
-	Max   float64 // 100% height of the bar
-	Color string  // ANSI color code
-	Text  string  // Human-readable string below the bar (e.g., "16GB")
+type stackedBarData struct {
+	Title  string
+	Used   float64
+	Free   float64
+	Total  float64
+	Labels []string
 }
 
-// drawBrailleBar generates a single vertical bar with labels beneath it
-func drawBrailleBar(data barData, height int) string {
+// drawStackedBar draws a single vertical bar with colored segments.
+// Bottom = Red (Used), Top = Green (Free), Middle = Gray (Total/Other).
+func drawStackedBar(data stackedBarData, height int) string {
 	var sb strings.Builder
 
-	// Calculate percentage (0.0 to 1.0)
-	percent := 0.0
-	if data.Max > 0 {
-		percent = data.Value / data.Max
-	}
-	if percent > 1.0 {
-		percent = 1.0
-	}
-	if percent < 0.0 {
-		percent = 0.0
+	// Safely handle 0 totals
+	if data.Total <= 0 {
+		data.Total = 1
 	}
 
-	// Total vertical resolution is 4 dots per terminal line
+	// Calculate how many "dots" of height each segment gets
 	totalDots := float64(height * 4)
-	activeDots := int(math.Round(percent * totalDots))
+	usedDots := int(math.Round((data.Used / data.Total) * totalDots))
+	freeDots := int(math.Round((data.Free / data.Total) * totalDots))
 
-	style := lipgloss.NewStyle().Foreground(lipgloss.Color(data.Color))
-
-	// Draw from the top of the chart down to the bottom
+	// Draw the bar from the top (highest row) to bottom (row 0)
 	for row := height - 1; row >= 0; row-- {
-		dotsInRow := activeDots - (row * 4)
-		if dotsInRow < 0 {
-			dotsInRow = 0
-		}
-		if dotsInRow > 4 {
-			dotsInRow = 4
+		// Find the vertical midpoint of the current character block
+		dotMid := (row * 4) + 2
+
+		color := "240" // Gray by default (Cache/System/Unused space)
+
+		if dotMid < usedDots {
+			color = "203" // Red for Used (Bottom of the bar)
+		} else if dotMid >= (int(totalDots) - freeDots) {
+			color = "42" // Green for Free (Top of the bar)
 		}
 
-		sb.WriteString(style.Render(brailleLevels[dotsInRow]) + "\n")
+		style := lipgloss.NewStyle().Foreground(lipgloss.Color(color))
+		sb.WriteString(style.Render("⣿⣿") + "\n")
 	}
 
-	// Wrap the bar and labels in a centered Lipgloss column
-	// The horizontal padding creates the gap between adjacent bars
+	// Compile the text labels below the bar
+	titleStyle := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("205"))
+	textStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("240"))
+
+	sb.WriteString(titleStyle.Render(data.Title) + "\n")
+	for _, lbl := range data.Labels {
+		sb.WriteString(textStyle.Render(lbl) + "\n")
+	}
+
+	// Wrap in a centered Lipgloss column with horizontal padding
 	colStyle := lipgloss.NewStyle().Align(lipgloss.Center).Padding(0, 1)
-	labelStyle := lipgloss.NewStyle().Foreground(lipgloss.Color("240")) // Grey text
-	valStyle := lipgloss.NewStyle().Bold(true)
-
-	content := fmt.Sprintf("%s%s\n%s", sb.String(), labelStyle.Render(data.Label), valStyle.Render(data.Text))
-	return colStyle.Render(content)
-}
-
-// makeChartGroup joins multiple bars side-by-side with a shared title
-func makeChartGroup(title string, bars []barData, barHeight int) string {
-	var renderedBars []string
-	for _, b := range bars {
-		renderedBars = append(renderedBars, drawBrailleBar(b, barHeight))
-	}
-
-	// Join all the vertical bar columns horizontally, aligning their bottoms
-	chartContent := lipgloss.JoinHorizontal(lipgloss.Bottom, renderedBars...)
-
-	titleStyle := lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("205")).MarginBottom(1)
-
-	// Stack the title on top of the bars
-	return lipgloss.JoinVertical(lipgloss.Left, titleStyle.Render(title), chartContent)
+	return colStyle.Render(sb.String())
 }
