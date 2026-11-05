@@ -1,3 +1,4 @@
+// main.go
 package main
 
 import (
@@ -23,6 +24,21 @@ import (
 	"github.com/shirou/gopsutil/v3/mem"
 	netstat "github.com/shirou/gopsutil/v3/net"
 )
+
+func formatUptime(seconds uint64) string {
+	days := seconds / 86400
+	hours := (seconds % 86400) / 3600
+	mins := (seconds % 3600) / 60
+	if days > 0 {
+		return fmt.Sprintf("%dd %dh %dm", days, hours, mins)
+	}
+	if hours > 0 {
+		return fmt.Sprintf("%dh %dm", hours, mins)
+	}
+	return fmt.Sprintf("%dm %ds", mins, seconds%60)
+}
+
+// --- DATA STRUCTURES ---
 
 type tickMsg time.Time
 
@@ -64,7 +80,6 @@ type model struct {
 	ramFreeGB   float64
 	ramTotalGB  float64
 	disks       []DiskInfo
-	diskUsages  []string
 	swapUsedGB  float64
 	swapFreeGB  float64
 	swapTotalGB float64
@@ -93,7 +108,7 @@ func initialModel() model {
 	}
 }
 
-func (m model) Init() tea.Cmd { return tea.Batch(textinput.Blink, tickEverySecond()) }
+// --- IPC & BACKEND LOGIC ---
 
 func getSocketPath() string {
 	home, err := os.UserHomeDir()
@@ -144,7 +159,6 @@ func findPythonBackendDir() string {
 func startPythonAPI() *exec.Cmd {
 	aiDir := findPythonBackendDir()
 
-	// Ensure ~/.omnikernel directory exists
 	home, _ := os.UserHomeDir()
 	omniDir := filepath.Join(home, ".omnikernel")
 	_ = os.MkdirAll(omniDir, 0755)
@@ -152,7 +166,6 @@ func startPythonAPI() *exec.Cmd {
 	socketPath := getSocketPath()
 	_ = os.Remove(socketPath)
 
-	// Determine runner: uv or python3
 	var cmd *exec.Cmd
 	if _, err := exec.LookPath("uv"); err == nil {
 		cmd = exec.Command("uv", "run", "python", "api.py")
@@ -161,7 +174,6 @@ func startPythonAPI() *exec.Cmd {
 	}
 
 	cmd.Dir = aiDir
-	// Ensure PYTHONPATH has both the ai directory and its parent for package imports
 	parentDir := filepath.Dir(aiDir)
 	currentPythonPath := os.Getenv("PYTHONPATH")
 	cmd.Env = append(os.Environ(),
@@ -174,7 +186,6 @@ func startPythonAPI() *exec.Cmd {
 		os.Exit(1)
 	}
 
-	// Wait up to 5 seconds for the socket to appear
 	for i := 0; i < 50; i++ {
 		if _, err := os.Stat(socketPath); err == nil {
 			break
@@ -229,6 +240,10 @@ func runToolAndStep(msg aiToolCallMsg) tea.Cmd {
 	}
 }
 
+// --- BUBBLE TEA LOGIC ---
+
+func (m model) Init() tea.Cmd { return tea.Batch(textinput.Blink, tickEverySecond()) }
+
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmd tea.Cmd
 	switch msg := msg.(type) {
@@ -260,7 +275,6 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case aiDoneMsg:
 		answer := string(msg)
-		// Cleanly replace thinking indicator if present
 		if strings.Contains(m.chatLog, "[Agent is thinking...]\n") {
 			m.chatLog = strings.Replace(m.chatLog, "[Agent is thinking...]\n", fmt.Sprintf("OmniKernel 🧠:\n%s\n", answer), 1)
 		} else {
@@ -283,24 +297,21 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.ramUsage = v.UsedPercent
 			m.ramUsedGB = float64(v.Used) / (1024 * 1024 * 1024)
 			m.ramTotalGB = float64(v.Total) / (1024 * 1024 * 1024)
+			m.ramFreeGB = float64(v.Free) / (1024 * 1024 * 1024)
 		}
 		// 4. Disks
 		if parts, err := disk.Partitions(false); err == nil {
 			var activeDisks []DiskInfo
-			const gb = 1024.0 * 1024.0 * 1024.0 // Byte to Gigabyte conversion factor
+			const gb = 1024.0 * 1024.0 * 1024.0
 
 			for _, p := range parts {
-				// Filter out system mounts that clutter the UI
 				if strings.HasPrefix(p.Mountpoint, "/snap") || strings.HasPrefix(p.Mountpoint, "/boot") {
 					continue
 				}
-
 				if u, err := disk.Usage(p.Mountpoint); err == nil {
-					// Prevent adding empty partitions or CD-ROM drives
 					if u.Total == 0 {
 						continue
 					}
-
 					activeDisks = append(activeDisks, DiskInfo{
 						MountPoint: p.Mountpoint,
 						TotalGB:    float64(u.Total) / gb,

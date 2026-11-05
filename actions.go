@@ -12,7 +12,7 @@ import (
 )
 
 // getIntArg safely extracts an integer parameter from a generic map
-func getIntArg(args map[string]interface{}, key string, defaultVal int) int {
+func getIntArg(args map[string]any, key string, defaultVal int) int {
 	if val, ok := args[key]; ok && val != nil {
 		switch v := val.(type) {
 		case float64:
@@ -29,7 +29,7 @@ func getIntArg(args map[string]interface{}, key string, defaultVal int) int {
 }
 
 // getStringArg safely extracts a string parameter from a generic map
-func getStringArg(args map[string]interface{}, key string, defaultVal string) string {
+func getStringArg(args map[string]any, key string, defaultVal string) string {
 	if val, ok := args[key]; ok && val != nil {
 		if s, ok := val.(string); ok {
 			return s
@@ -40,12 +40,12 @@ func getStringArg(args map[string]interface{}, key string, defaultVal string) st
 
 // ExecuteTool routes an AI tool call to the corresponding native Go implementation.
 func ExecuteTool(name string, arguments string) string {
-	var args map[string]interface{}
+	var args map[string]any
 	if arguments != "" {
 		_ = json.Unmarshal([]byte(arguments), &args)
 	}
 	if args == nil {
-		args = make(map[string]interface{})
+		args = make(map[string]any)
 	}
 
 	switch name {
