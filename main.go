@@ -292,12 +292,17 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if cores, err := cpu.Percent(0, true); err == nil {
 			m.coreUsages = cores
 		}
-		// 3. RAM
+		// 3. RAM & SWAP
 		if v, err := mem.VirtualMemory(); err == nil {
 			m.ramUsage = v.UsedPercent
 			m.ramUsedGB = float64(v.Used) / (1024 * 1024 * 1024)
 			m.ramTotalGB = float64(v.Total) / (1024 * 1024 * 1024)
 			m.ramFreeGB = float64(v.Free) / (1024 * 1024 * 1024)
+		}
+		if s, err := mem.SwapMemory(); err == nil {
+			m.swapUsedGB = float64(s.Used) / (1024 * 1024 * 1024)
+			m.swapFreeGB = float64(s.Free) / (1024 * 1024 * 1024)
+			m.swapTotalGB = float64(s.Total) / (1024 * 1024 * 1024)
 		}
 		// 4. Disks
 		if parts, err := disk.Partitions(false); err == nil {
@@ -305,9 +310,14 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			const gb = 1024.0 * 1024.0 * 1024.0
 
 			for _, p := range parts {
-				if strings.HasPrefix(p.Mountpoint, "/snap") || strings.HasPrefix(p.Mountpoint, "/boot") {
+				// Ignore snaps. Ignore /boot EXCEPT for /boot/efi
+				if strings.HasPrefix(p.Mountpoint, "/snap") {
 					continue
 				}
+				if strings.HasPrefix(p.Mountpoint, "/boot") && p.Mountpoint != "/boot/efi" {
+					continue
+				}
+
 				if u, err := disk.Usage(p.Mountpoint); err == nil {
 					if u.Total == 0 {
 						continue
